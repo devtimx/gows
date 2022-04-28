@@ -1,3 +1,3 @@
-echo # gows
+# gows
 
 In process ...
