@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -13,7 +12,7 @@ const (
 	userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36"
 )
 
-var urlList = []string{
+var UrlList = []string{
 	//"https://www.amazon.com.mx/dp/B07Z4681LQ",
 	"https://www.amazon.com.mx/dp/B07ZQS6LPZ",
 	"https://www.amazon.com.mx/dp/B07FDF9B46",
@@ -29,32 +28,38 @@ type Product struct {
 }
 
 func main() {
-	var products []Product
-	var wg sync.WaitGroup
-	chanel := make(chan Product)
+	// set num workers
+	nWorkers := 3
+	//Create buffer chanels
+	jobs := make(chan string, len(UrlList))
+	results := make(chan Product, len(UrlList))
 
-	wg.Add(len(urlList))
+	for i := 0; i < nWorkers; i++ {
+		go Worker(i, jobs, results)
+	}
+	for _, value := range UrlList {
+		jobs <- value
+	}
+	close(jobs)
+	for r := 0; r < len(UrlList); r++ {
+		<-results
+	}
+}
 
-	for _, url := range urlList {
-		go scraperUrl(url, chanel)
-	}
+/* Worker, receives id worker, jobs Chanel and response a product chanel*/
+func Worker(id int, jobs <-chan string, results chan<- Product) {
+	var scrap Product
+	for job := range jobs {
+		fmt.Printf("Worker with id %d started fib with %s\n", id, job)
+		scrap = ScraperUrl(job)
 
-	for range urlList {
-		go func() {
-			defer wg.Done()
-			product := <-chanel
-			products = append(products, product)
-		}()
+		fmt.Printf("Worker with id %d, job %s and result: %s\n", id, job, scrap)
+		results <- scrap
 	}
-	wg.Wait()
-	for _, product := range products {
-		fmt.Printf("Name: %s Price: %s OldProce: %s Brand: %s\n", product.Name, product.Price, product.OldPrice, product.Brand)
-	}
-	close(chanel)
 }
 
 /* scraperUrl resolves URL, extract data and returns a string*/
-func scraperUrl(url string, chanel chan<- Product) {
+func ScraperUrl(url string) Product {
 	var products Product
 	client := &http.Client{}
 	request, _ := http.NewRequest("GET", url, nil)
@@ -63,7 +68,7 @@ func scraperUrl(url string, chanel chan<- Product) {
 
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
-		return
+		return Product{}
 	}
 	doc.Each(func(i int, s *goquery.Selection) {
 		products = Product{
@@ -73,8 +78,5 @@ func scraperUrl(url string, chanel chan<- Product) {
 			Brand:    s.Find(".po-brand .a-span9 span.a-size-base").Text(),
 		}
 	})
-
-	defer func() {
-		chanel <- products
-	}()
+	return products
 }
